@@ -5,20 +5,12 @@ import Prelude
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
 
-data Type
-  = TypeUnsignedInteger String
-  | TypeFloat String
-  | TypeString String
-
-derive instance genericType :: Generic Type _
-instance showType :: Show Type where show = genericShow
-
 data IDLType
   = IDLTypeNamed String
-  | IDLTypeNullable Type
+  | IDLTypeNullable IDLType
 
 derive instance genericIDLType :: Generic IDLType _
-instance showIDLType :: Show IDLType where show = genericShow
+instance showIDLType :: Show IDLType where show t = genericShow t
 
 data Node
   = NodeTypeDef

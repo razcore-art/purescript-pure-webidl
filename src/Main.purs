@@ -8,7 +8,7 @@ import Text.Parsing.Parser (runParser)
 import WebIDL.Parser (webIDLParser)
 
 testString :: String
-testString = "long"
+testString = "unsigned long long"
 
 main :: Effect Unit
 main = logShow $ runParser testString webIDLParser

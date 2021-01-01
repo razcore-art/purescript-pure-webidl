@@ -4,63 +4,63 @@ module WebIDL.Parser
 
 import Prelude
 
-import Control.Alt ((<|>))
 import Data.Array (filter)
 import Data.Foldable (class Foldable)
-import Data.Functor (voidLeft, voidRight)
 import Data.String as S
 import Text.Parsing.Parser (Parser)
-import Text.Parsing.Parser.Combinators (choice, try)
+import Text.Parsing.Parser.Combinators (choice, option)
 import Text.Parsing.Parser.Language (javaStyle)
 import Text.Parsing.Parser.Token (GenLanguageDef(..), TokenParser, makeTokenParser, unGenLanguageDef)
 import WebIDL.AST as AST
 
-reservedUnsignedInteger :: Array String
-reservedUnsignedInteger = [ "short", "long long", "long" ]
+unsignedIntegers :: Array String
+unsignedIntegers
+  = [ "short"
+    , "long long"
+    , "long"
+    ]
 
-reservedString :: Array String
-reservedString = [ "ByteString", "DOMString", "USVString" ]
+strings :: Array String
+strings
+  = [ "ByteString"
+    , "DOMString"
+    , "USVString"
+    ]
 
+floats :: Array String
+floats
+  = [ "float"
+    , "double"
+    ]
 
-reservedFloat :: Array String
-reservedFloat = [ "float", "double" ]
+reservedNames :: Array String
+reservedNames = unsignedIntegers <> strings <> floats
 
 tokenParser :: TokenParser
 tokenParser
-  = makeTokenParser $ LanguageDef (unGenLanguageDef javaStyle)
-  { reservedNames = 
-    [ "dictionary"
-    , "interface"
-    , "mixin"
-    , "typedef"
-    , "unsigned"
-    ]
-    <> filter ((_ < 2)<<< S.length) reservedUnsignedInteger
-    <> reservedString
-    <> reservedFloat
+  = makeTokenParser
+  $ LanguageDef (unGenLanguageDef javaStyle)
+  { reservedNames =
+    [ "unsigned"
+    ] <> filter ((_ < 2) <<< S.length) reservedNames
+  , reservedOpNames = [ "?" ]
   }
 
-reserved :: String -> Parser String Unit
-reserved = tokenParser.reserved
+retainReserved :: String -> Parser String String
+retainReserved s = tokenParser.reserved s $> s
 
-reservedRetain :: String -> Parser String String
-reservedRetain s = reserved s $> s
+typeSimple :: ∀ f. Functor f => Foldable f => f String -> Parser String String
+typeSimple = choice <<< map retainReserved
 
-parseTypeSimple :: ∀ f. Functor f => Foldable f => f String -> Parser String String
-parseTypeSimple = choice <<< map reservedRetain
+typeUnsignedInteger :: Parser String AST.IDLType
+typeUnsignedInteger = do
+  unsigned <- option "" $ (_ <> " ") <$> retainReserved "unsigned"
+  name     <- typeSimple unsignedIntegers
+  nullable <- option false $ tokenParser.reservedOp "?" $> true
+  let idlTypeNamed = AST.IDLTypeNamed $ unsigned <> name
+  pure if nullable
+    then AST.IDLTypeNullable idlTypeNamed
+    else idlTypeNamed
 
-parseTypeUnsignedInteger :: Parser String AST.Type
-parseTypeUnsignedInteger = AST.TypeUnsignedInteger <$> parseTypeSimple reservedUnsignedInteger
-
-parseTypeFloat :: Parser String AST.Type
-parseTypeFloat = AST.TypeFloat <$> parseTypeSimple reservedFloat
-
-parseTypeString :: Parser String AST.Type
-parseTypeString = AST.TypeString <$> parseTypeSimple reservedString
-
-webIDLParser ::Parser String AST.Type
-webIDLParser
-  =  tokenParser.whiteSpace
-  *>  parseTypeFloat
-  <|> parseTypeString
-  <|> parseTypeUnsignedInteger
+webIDLParser ::Parser String AST.IDLType
+webIDLParser = tokenParser.whiteSpace *> typeUnsignedInteger
