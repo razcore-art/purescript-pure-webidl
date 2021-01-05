@@ -1,5 +1,11 @@
 module WebIDL.Parser
-  ( webIDLParser
+  ( basics
+  , integers
+  , floats
+  , typePrimitiveBasic
+  , typeUnsignedInteger
+  , typeUnrestrictedFloat
+  , typePrimitive
   ) where
 
 import Prelude
@@ -13,11 +19,27 @@ import Text.Parsing.Parser.Language (javaStyle)
 import Text.Parsing.Parser.Token (GenLanguageDef(..), TokenParser, makeTokenParser, unGenLanguageDef)
 import WebIDL.AST as AST
 
-unsignedIntegers :: Array String
-unsignedIntegers
+
+basics :: Array String
+basics
+  = [ "undefined"
+    , "boolean"
+    , "byte"
+    , "octet"
+    , "bigint"
+    ]
+
+integers :: Array String
+integers
   = [ "short"
     , "long long"
     , "long"
+    ]
+
+floats :: Array String
+floats
+  = [ "float"
+    , "double"
     ]
 
 strings :: Array String
@@ -27,24 +49,24 @@ strings
     , "USVString"
     ]
 
-floats :: Array String
-floats
-  = [ "float"
-    , "double"
+others :: Array String
+others
+  = [ "unsigned"
+    , "unrestricted"
     ]
 
+
 reservedNames :: Array String
-reservedNames = unsignedIntegers <> strings <> floats
+reservedNames = integers <> strings <> floats <> others
 
 tokenParser :: TokenParser
 tokenParser
   = makeTokenParser
   $ LanguageDef (unGenLanguageDef javaStyle)
-  { reservedNames =
-    [ "unsigned"
-    ] <> filter ((_ < 2) <<< S.length) reservedNames
+  { reservedNames = filter ((_ < 2) <<< S.length) reservedNames
   , reservedOpNames = [ "?" ]
   }
+
 
 retainReserved :: String -> Parser String String
 retainReserved s = tokenParser.reserved s $> s
@@ -52,15 +74,29 @@ retainReserved s = tokenParser.reserved s $> s
 typeSimple :: ∀ f. Functor f => Foldable f => f String -> Parser String String
 typeSimple = choice <<< map retainReserved
 
-typeUnsignedInteger :: Parser String AST.IDLType
-typeUnsignedInteger = do
-  unsigned <- option "" $ (_ <> " ") <$> retainReserved "unsigned"
-  name     <- typeSimple unsignedIntegers
-  nullable <- option false $ tokenParser.reservedOp "?" $> true
-  let idlTypeNamed = AST.IDLTypeNamed $ unsigned <> name
-  pure if nullable
-    then AST.IDLTypeNullable idlTypeNamed
-    else idlTypeNamed
 
-webIDLParser ::Parser String AST.IDLType
-webIDLParser = tokenParser.whiteSpace *> typeUnsignedInteger
+typePrimitiveBuilder :: ∀ f. Functor f => Foldable f => f String -> String -> Parser String AST.IDLType
+typePrimitiveBuilder types
+  = case _ of
+         ""           -> parser ""
+         optionalType -> (option "" $ (_ <> " ") <$> retainReserved optionalType) >>= parser
+  where parser preName = do
+          name     <- typeSimple types
+          nullable <- option false $ tokenParser.reservedOp "?" $> true
+          let idlTypeNamed = AST.IDLTypeNamed $ preName <> name
+          pure $ (if nullable
+                    then AST.IDLTypeNullable
+                    else identity) idlTypeNamed 
+
+
+typePrimitiveBasic :: Parser String AST.IDLType
+typePrimitiveBasic = typePrimitiveBuilder basics ""
+
+typeUnsignedInteger :: Parser String AST.IDLType
+typeUnsignedInteger = typePrimitiveBuilder integers "unsigned"
+
+typeUnrestrictedFloat :: Parser String AST.IDLType
+typeUnrestrictedFloat = typePrimitiveBuilder floats "unrestricted"
+
+typePrimitive :: Parser String AST.IDLType
+typePrimitive = choice [ typePrimitiveBasic, typeUnsignedInteger, typeUnrestrictedFloat ]

@@ -13,35 +13,31 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner (runSpec)
-import Text.Parsing.Parser (runParser)
+import Text.Parsing.Parser (Parser, runParser)
 import WebIDL.AST as AST
-import WebIDL.Parser (webIDLParser)
+import WebIDL.Parser as P
+
 
 main :: Effect Unit
 main = launchAff_ $ runSpec [ consoleReporter ] do
-   describeUnsignedInteger
+   let unsignedIntegers   = [ identity, ("unsigned " <> _)]     <*> P.integers
+       unrestrictedFloats = [ identity, ("unrestricted " <> _)] <*> P.floats
+
+   describePrimitiveType "PrimitiveBasic"   P.typePrimitiveBasic    P.basics
+   describePrimitiveType "UnsignedInteger"  P.typeUnsignedInteger   unsignedIntegers
+   describePrimitiveType "UrestrictedFloat" P.typeUnrestrictedFloat unrestrictedFloats
+   describePrimitiveType "Primitive"        P.typePrimitive       $ P.basics <> unsignedIntegers <> unrestrictedFloats
 
 
-describeUnsignedInteger :: Spec Unit
-describeUnsignedInteger
-   = describe "UnsignedInteger" do
-      let inputs    = [ "short", "long", "long long", "unsigned short", "unsigned long", "unsigned long long" ]
-          before    = (" " <> _)
-          after     = (_ <> " after")
+describePrimitiveType :: String -> Parser String AST.IDLType -> Array String -> Spec Unit
+describePrimitiveType description parser inputs
+   = describe description do
+      let post      = (_ <> " post")
           nullable  = (_ <> "?")
-          alteredBy = alteredTuple
-                  <$> [ identity
-                      , before
-                      , after
-                      , nullable
-                      , after    <<< before
-                      , nullable <<< before
-                      , after    <<< nullable
-                      , after    <<< nullable <<< before
-                      ]
+          alteredBy = alteredTuple <$> [ identity, post, nullable, post <<< nullable ]
       it "should succeed on well formed input" $ fold do
          Tuple input alteredInput <- alteredBy <*> inputs
-         let parsed   = hush $ runParser alteredInput webIDLParser
+         let parsed   = hush $ runParser alteredInput parser
              expected = Just <<< (if contains (Pattern "?") alteredInput
                                      then AST.IDLTypeNullable
                                      else identity) <<< AST.IDLTypeNamed $ input

@@ -5,6 +5,7 @@ import Prelude
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
 
+
 data IDLType
   = IDLTypeNamed String
   | IDLTypeNullable IDLType
@@ -12,6 +13,7 @@ data IDLType
 derive instance eqIDLType :: Eq IDLType
 derive instance genericIDLType :: Generic IDLType _
 instance showIDLType :: Show IDLType where show t = genericShow t
+
 
 data Node
   = NodeTypeDef
