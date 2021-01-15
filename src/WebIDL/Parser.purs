@@ -6,19 +6,35 @@ module WebIDL.Parser
   , typeUnsignedInteger
   , typeUnrestrictedFloat
   , typePrimitive
+  , words
   ) where
+  -- where
 
 import Prelude
 
-import Data.Array (filter)
+import Control.Plus (empty)
+import Data.Either (Either(..))
 import Data.Foldable (class Foldable)
-import Data.String as S
+import Data.String.Regex (Regex)
+import Data.String.Regex as R
+import Data.String.Regex.Flags as RF
+import Partial.Unsafe (unsafeCrashWith)
 import Text.Parsing.Parser (Parser)
-import Text.Parsing.Parser.Combinators (choice, option)
+import Text.Parsing.Parser.Combinators (choice, option, try)
 import Text.Parsing.Parser.Language (javaStyle)
 import Text.Parsing.Parser.Token (GenLanguageDef(..), TokenParser, makeTokenParser, unGenLanguageDef)
 import WebIDL.AST as AST
 
+
+whitespaceRegex :: Regex
+whitespaceRegex
+  = case R.regex """\s+""" RF.noFlags of
+         Left  err -> unsafeCrashWith $ "[whitespaceRegex] `\\s+` seems to be invalid, err: " <> err
+         Right r   -> r
+
+words :: String -> Array String
+words "" = empty
+words s  = R.split whitespaceRegex s
 
 basics :: Array String
 basics
@@ -32,7 +48,6 @@ basics
 integers :: Array String
 integers
   = [ "short"
-    , "long long"
     , "long"
     ]
 
@@ -57,19 +72,21 @@ others
 
 
 reservedNames :: Array String
-reservedNames = integers <> strings <> floats <> others
+reservedNames = integers <> floats <> strings <> others
 
 tokenParser :: TokenParser
 tokenParser
   = makeTokenParser
   $ LanguageDef (unGenLanguageDef javaStyle)
-  { reservedNames = filter ((_ < 2) <<< S.length) reservedNames
+  { reservedNames = reservedNames
   , reservedOpNames = [ "?" ]
   }
 
 
 retainReserved :: String -> Parser String String
-retainReserved s = tokenParser.reserved s $> s
+-- "long" is special because it can be "long IDENTIFIER" or "long long IDENTIFIER"
+retainReserved s | s == "long" = s <$ choice [ try (tokenParser.reserved s <* tokenParser.reserved s), tokenParser.reserved s ]
+                 | otherwise   = s <$ tokenParser.reserved s
 
 typeSimple :: ∀ f. Functor f => Foldable f => f String -> Parser String String
 typeSimple = choice <<< map retainReserved
@@ -82,11 +99,11 @@ typePrimitiveBuilder types
          optionalType -> (option "" $ (_ <> " ") <$> retainReserved optionalType) >>= parser
   where parser preName = do
           name     <- typeSimple types
-          nullable <- option false $ tokenParser.reservedOp "?" $> true
+          nullable <- option false $ true <$ tokenParser.reservedOp "?"
           let idlTypeNamed = AST.IDLTypeNamed $ preName <> name
           pure $ (if nullable
                     then AST.IDLTypeNullable
-                    else identity) idlTypeNamed 
+                    else identity) idlTypeNamed
 
 
 typePrimitiveBasic :: Parser String AST.IDLType
@@ -97,6 +114,10 @@ typeUnsignedInteger = typePrimitiveBuilder integers "unsigned"
 
 typeUnrestrictedFloat :: Parser String AST.IDLType
 typeUnrestrictedFloat = typePrimitiveBuilder floats "unrestricted"
+
+-- TODO: start working on the bigger parser that includes other non PrimitiveType parsers
+typeString :: Parser String AST.IDLType
+typeString = typePrimitiveBuilder strings ""
 
 typePrimitive :: Parser String AST.IDLType
 typePrimitive = choice [ typePrimitiveBasic, typeUnsignedInteger, typeUnrestrictedFloat ]

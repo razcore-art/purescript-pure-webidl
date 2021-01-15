@@ -9,7 +9,7 @@ import Data.String (Pattern(..), contains)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Aff (launchAff_)
-import Test.Spec (Spec, describe, it)
+import Test.Spec (Spec, describe, it, parallel)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner (runSpec)
@@ -19,7 +19,7 @@ import WebIDL.Parser as P
 
 
 main :: Effect Unit
-main = launchAff_ $ runSpec [ consoleReporter ] do
+main = launchAff_ $ runSpec [ consoleReporter ] $ parallel do
    let unsignedIntegers   = [ identity, ("unsigned " <> _)]     <*> P.integers
        unrestrictedFloats = [ identity, ("unrestricted " <> _)] <*> P.floats
 
