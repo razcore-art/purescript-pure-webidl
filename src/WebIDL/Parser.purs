@@ -1,40 +1,45 @@
 module WebIDL.Parser
   ( basics
-  , integers
   , floats
-  , typePrimitiveBasic
-  , typeUnsignedInteger
-  , typeUnrestrictedFloat
+  , integers
+  , identStartChar
+  , strings
+  , parser
+  , typeIdentifier
   , typePrimitive
+  , typeString
+  , unwords
   , words
   ) where
   -- where
 
 import Prelude
 
+import Control.Alt ((<|>))
 import Control.Plus (empty)
-import Data.Either (Either(..))
-import Data.Foldable (class Foldable)
+import Data.Foldable (class Foldable, intercalate)
+import Data.String.CodeUnits as S
 import Data.String.Regex (Regex)
 import Data.String.Regex as R
 import Data.String.Regex.Flags as RF
-import Partial.Unsafe (unsafeCrashWith)
+import Data.String.Regex.Unsafe (unsafeRegex)
 import Text.Parsing.Parser (Parser)
 import Text.Parsing.Parser.Combinators (choice, option, try)
 import Text.Parsing.Parser.Language (javaStyle)
-import Text.Parsing.Parser.Token (GenLanguageDef(..), TokenParser, makeTokenParser, unGenLanguageDef)
+import Text.Parsing.Parser.String (char)
+import Text.Parsing.Parser.Token (GenLanguageDef(..), TokenParser, letter, makeTokenParser, unGenLanguageDef)
 import WebIDL.AST as AST
 
 
 whitespaceRegex :: Regex
-whitespaceRegex
-  = case R.regex """\s+""" RF.noFlags of
-         Left  err -> unsafeCrashWith $ "[whitespaceRegex] `\\s+` seems to be invalid, err: " <> err
-         Right r   -> r
+whitespaceRegex = unsafeRegex """\s+""" RF.noFlags
 
 words :: String -> Array String
 words "" = empty
 words s  = R.split whitespaceRegex s
+
+unwords :: ∀ f. Foldable f => f String -> String
+unwords = intercalate " "
 
 basics :: Array String
 basics
@@ -74,11 +79,15 @@ others
 reservedNames :: Array String
 reservedNames = integers <> floats <> strings <> others
 
+identStartChar :: Char
+identStartChar = '_'
+
 tokenParser :: TokenParser
 tokenParser
   = makeTokenParser
   $ LanguageDef (unGenLanguageDef javaStyle)
-  { reservedNames = reservedNames
+  { identStart      = letter <|> char identStartChar
+  , reservedNames   = reservedNames
   , reservedOpNames = [ "?" ]
   }
 
@@ -95,9 +104,9 @@ typeSimple = choice <<< map retainReserved
 typePrimitiveBuilder :: ∀ f. Functor f => Foldable f => f String -> String -> Parser String AST.IDLType
 typePrimitiveBuilder types
   = case _ of
-         ""           -> parser ""
-         optionalType -> (option "" $ (_ <> " ") <$> retainReserved optionalType) >>= parser
-  where parser preName = do
+         ""           -> parserImpl ""
+         optionalType -> (option "" $ (_ <> " ") <$> retainReserved optionalType) >>= parserImpl
+  where parserImpl preName = do
           name     <- typeSimple types
           nullable <- option false $ true <$ tokenParser.reservedOp "?"
           let idlTypeNamed = AST.IDLTypeNamed $ preName <> name
@@ -115,9 +124,20 @@ typeUnsignedInteger = typePrimitiveBuilder integers "unsigned"
 typeUnrestrictedFloat :: Parser String AST.IDLType
 typeUnrestrictedFloat = typePrimitiveBuilder floats "unrestricted"
 
--- TODO: start working on the bigger parser that includes other non PrimitiveType parsers
+typePrimitive :: Parser String AST.IDLType
+typePrimitive = choice [ typePrimitiveBasic, typeUnsignedInteger, typeUnrestrictedFloat ]
+
 typeString :: Parser String AST.IDLType
 typeString = typePrimitiveBuilder strings ""
 
-typePrimitive :: Parser String AST.IDLType
-typePrimitive = choice [ typePrimitiveBasic, typeUnsignedInteger, typeUnrestrictedFloat ]
+typeIdentifier :: Parser String AST.IDLType
+typeIdentifier = do
+  identifier <- tokenParser.identifier
+  nullable   <- option false $ true <$ tokenParser.reservedOp "?"
+  let idlTypeNamed = AST.IDLTypeNamed <<< S.dropWhile (_ == identStartChar) $ identifier
+  pure $ (if nullable
+             then AST.IDLTypeNullable
+             else identity) idlTypeNamed
+
+parser :: Parser String AST.IDLType
+parser = choice [ typePrimitive, typeString, typeIdentifier ]
